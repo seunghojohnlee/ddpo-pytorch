@@ -5,8 +5,8 @@
 #SBATCH --cpus-per-task=4
 #SBATCH --mem=16G
 #SBATCH --time=02:00:00
-#SBATCH --output=/scratch/network/jl7339/rl/ddpo-pytorch/output/ddpo_%j.out
-#SBATCH --error=/scratch/network/jl7339/rl/ddpo-pytorch/error/ddpo_%j.err
+#SBATCH --output=/scratch/network/jl7339/rl/ddpo-pytorch/output/1.out
+#SBATCH --error=/scratch/network/jl7339/rl/ddpo-pytorch/error/1.err
 
 module load anaconda3/2025.12
 source ~/.bashrc
