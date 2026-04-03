@@ -331,7 +331,7 @@ def main(_):
             ).input_ids.to(accelerator.device)
             prompt_embeds = pipeline.text_encoder(prompt_ids)[0]
 
-            # sample
+            # sample (generating diffusion model)
             with autocast():
                 images, _, latents, log_probs = pipeline_with_logprob(
                     pipeline,
@@ -385,6 +385,22 @@ def main(_):
 
         # collate samples into dict where each entry has shape (num_batches_per_epoch * sample.batch_size, ...)
         samples = {k: torch.cat([s[k] for s in samples]) for k in samples[0].keys()}
+
+        # Compute w_t
+        def compute_simple_step_weights(num_steps, alpha, device):
+            t = torch.arange(num_steps, device=device, dtype=torch.float32)
+            raw = (num_steps - t) ** alpha
+            return (raw / raw.sum()).detach()
+
+        base_step_weights = compute_simple_step_weights(
+            config.sample.num_steps,
+            config.train.step_weight_alpha,
+            accelerator.device,
+        )
+        samples["step_weights"] = base_step_weights.unsqueeze(0).repeat(
+            samples["timesteps"].shape[0], 1
+        )
+
 
         # this is a hack to force wandb to log the images as JPEGs instead of PNGs
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -464,7 +480,7 @@ def main(_):
                     for _ in range(total_batch_size)
                 ]
             )
-            for key in ["timesteps", "latents", "next_latents", "log_probs"]:
+            for key in ["timesteps", "latents", "next_latents", "log_probs", "step_weights"]:
                 samples[key] = samples[key][
                     torch.arange(total_batch_size, device=accelerator.device)[:, None],
                     perms,
@@ -484,6 +500,7 @@ def main(_):
             # train
             pipeline.unet.train()
             info = defaultdict(list)
+            # Looping through batches of training data
             for i, sample in tqdm(
                 list(enumerate(samples_batched)),
                 desc=f"Epoch {epoch}.{inner_epoch}: training",
@@ -548,7 +565,10 @@ def main(_):
                             1.0 - config.train.clip_range,
                             1.0 + config.train.clip_range,
                         )
-                        loss = torch.mean(torch.maximum(unclipped_loss, clipped_loss))
+
+                        # Added w_t
+                        step_weight = sample["step_weights"][:, j].unsqueeze(1)
+                        loss = torch.mean(step_weight * torch.maximum(unclipped_loss, clipped_loss))
 
                         # debugging values
                         # John Schulman says that (ratio - 1) - log(ratio) is a better
