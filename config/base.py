@@ -56,6 +56,7 @@ def get_config():
 
     ###### Training ######
     config.train = train = ml_collections.ConfigDict()
+    train.step_weight_alpha = 1.0
     # batch size (per GPU!) to use for training.
     train.batch_size = 1
     # whether to use the 8bit Adam optimizer from bitsandbytes.
